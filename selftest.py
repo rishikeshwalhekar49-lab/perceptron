@@ -11,6 +11,7 @@ Usage:  python selftest.py            (about a minute)
 import math
 import os
 import random
+import re
 import sys
 import tempfile
 import time
@@ -28,6 +29,7 @@ pygame.init()
 screen = pygame.display.set_mode((1200, 720))
 
 from heist import academy, core, menus, play  # noqa: E402
+from heist import app as app_module  # noqa: E402
 from heist.app import App  # noqa: E402
 from heist.board import FLOOR, LEARNING_RATE, Board, Unit  # noqa: E402
 from heist.core import (Perceptron, boundary_endpoints, bounds_corners, clip_to_side, count_errors,  # noqa: E402
@@ -644,6 +646,24 @@ for opener in openers:
 check({"MainMenuScene", "LevelSelectScene", "CampaignScene", "EndlessScene", "AcademyScene", "LessonScene",
        "QuizScene", "ProfileScene", "SettingsScene", "RecordsScene"} <= types, "random input visited every screen")
 print("  screens reached:", ", ".join(sorted(types)))
+
+# -------------------------------------------------------- browser page template
+section("browser page template")
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "tools", "web", "index.tmpl"),
+          encoding="utf-8") as page_file:
+    page = page_file.read()
+loader, html = page.split("# --></script>", 1)
+check("<script" not in loader.split("#<!--", 1)[1] and "</script" not in loader,
+      "the embedded Python loader never says <script>, which would break the page")
+for element in ("canvas", "canvas3d", "html", "transfer", "status", "progress", "crt", "system", "box", "info",
+                "iframe", "dlg", "dlg_multifile", "pyconsole", "terminal", "splash", "splash_note", "splash_start"):
+    check(re.search(r"""id=["']?%s["'\s>]""" % element, html), "the page keeps the element pygbag needs: " + element)
+for step in ("unpacking", "ready", "starting", "started"):
+    check('heist_splash("%s")' % step in loader, "the loader reports the step: " + step)
+check("function heist_splash(" in html and '"done"' in html, "the page knows the game's first-frame message")
+check(page.count("{{heist.site_url}}") >= 3, "the link-preview tags point at the published site")
+check(callable(app_module.page_ready), "the game tells the page when its first frame is drawn")
+app_module.page_ready()                                 # a no-op off the web: must not raise
 
 # ---------------------------------------------------------------- frame cost
 section("frame cost")

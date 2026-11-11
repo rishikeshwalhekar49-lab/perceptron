@@ -228,6 +228,7 @@ class App:
 
     async def run(self):
         clock = pygame.time.Clock()
+        shown = False
         while self.running:
             dt = min(clock.tick(FPS) / 1000.0, 0.05)
             for event in pygame.event.get():
@@ -235,7 +236,25 @@ class App:
             self.update(dt)
             self.draw()
             pygame.display.flip()
+            if not shown:
+                shown = True
+                page_ready()
             await asyncio.sleep(0)      # lets the browser breathe; costs nothing on the desktop
+
+
+def page_ready():
+    """In a browser, fade out the page's loading screen now that the first frame is on screen.
+
+    The page (tools/web/index.tmpl) defines heist_splash().  On the desktop, or on a page
+    without it, this does nothing.
+    """
+    if not WEB:
+        return
+    try:
+        import platform as browser      # pygbag swaps `platform` for a bridge to the page
+        browser.window.heist_splash("done")
+    except Exception:
+        pass
 
 
 def main():

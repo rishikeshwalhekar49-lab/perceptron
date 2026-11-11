@@ -90,4 +90,4 @@ The key hints along the bottom of the screen are buttons too, so the whole game 
 .venv/bin/python tools/build_web.py --serve   # or builds it and serves it at http://localhost:8000
 ```
 
-`build/web/` is a static site for GitHub Pages, itch.io or any web server. The page loads Python and pygame from pygbag's CDN, so players need to be online. Test it with `--serve` rather than a plain web server: when the page is served from localhost, it looks for the runtime on pygbag's own server at port 8000.
+The page, with its loading screen and link-preview tags, is `tools/web/index.tmpl`; the build also draws `preview.png`, the card that shows up when the link is shared. `build/web/` is a static site for GitHub Pages, itch.io or any web server. The page loads Python and pygame from pygbag's CDN, so players need to be online. Test it with `--serve` rather than a plain web server: when the page is served from localhost, it looks for the runtime on pygbag's own server at port 8000.
