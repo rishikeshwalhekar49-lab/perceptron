@@ -128,20 +128,25 @@ def open_mixer(frequency=44100, size=-16, channels=2, buffer=512):
     unplug listener instead, which is removed properly.  The cost: sound stays on
     the device that was the default when the game started.
 
-    Set HYPERPLANE_HEIST_AUDIO=0 to run without opening any audio device."""
+    Set HYPERPLANE_HEIST_AUDIO=0 to run without opening any audio device.
+    Never raises: the worst case is a silent game."""
     if os.environ.get("HYPERPLANE_HEIST_AUDIO", "1") == "0":
         os.environ["SDL_AUDIODRIVER"] = "dummy"         # so pygame.init() cannot open a real device either
         return False
-    if pygame.mixer.get_init():
-        return True
-    driver = os.environ.get("SDL_AUDIODRIVER", "")
-    name = default_output_name() if driver in ("", "coreaudio") else None
-    for devicename in ([name] if name else []) + [None]:
-        try:
-            pygame.mixer.init(frequency, size, channels, buffer, devicename=devicename)
+    try:
+        import pygame.mixer  # noqa: F401  (pygame in the browser does not import it on its own)
+        if pygame.mixer.get_init():
             return True
-        except pygame.error:
-            continue
+        driver = os.environ.get("SDL_AUDIODRIVER", "")
+        name = default_output_name() if driver in ("", "coreaudio") else None
+        for devicename in ([name] if name else []) + [None]:
+            try:
+                pygame.mixer.init(frequency, size, channels, buffer, devicename=devicename)
+                return True
+            except pygame.error:
+                continue
+    except Exception:
+        pass
     return False
 
 

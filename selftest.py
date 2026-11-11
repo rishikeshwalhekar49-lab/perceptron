@@ -504,6 +504,101 @@ for _ in range(400):
 for question, options, why in academy.BANK:
     check(len(options) == 4 and len(set(options)) == 4, "bank questions have 4 distinct options")
 
+# ----------------------------------------------------------- mouse and touch
+section("mouse and touch (no keyboard)")
+
+
+def click(app, pos):
+    app.handle_event(pygame.event.Event(pygame.MOUSEBUTTONDOWN, pos=(int(pos[0]), int(pos[1])), button=1))
+    app.handle_event(pygame.event.Event(pygame.MOUSEBUTTONUP, pos=(int(pos[0]), int(pos[1])), button=1))
+
+
+app = make_app()
+scene = start_vault(app, 0)
+app.draw()
+hints = {action: rect for rect, action in scene.hints}
+check({"lockin", "declare", "flip", "restart", "pause"} <= set(hints), "campaign key hints are clickable")
+before = scene.board.params
+click(app, hints["flip"].center)
+check(all(close(a, -b) for a, b in zip(scene.board.params, before)), "clicking flip flips")
+click(app, hints["pause"].center)
+check(isinstance(app.top, play.PauseScene), "clicking pause pauses")
+click(app, app.top.menu.items[0].rect.center)
+check(app.top is scene, "the pause menu resumes by click")
+click(app, hints["lockin"].center)
+check(scene.state == "scan", "clicking lock in scans")
+app.go_endless(False)
+run(app, 3)
+e = app.top
+for _ in range(100):
+    if e.state == "play":
+        break
+    if e.state == "sector" and e.state_t > 0.5:
+        click(app, (600, 360))                      # tap the sector card away
+    run(app, 10)
+check(e.state == "play", "a tap starts the first wave")
+app.draw()
+hints = {action: rect for rect, action in e.hints}
+check({"scan", "declare", "flip", "pause"} <= set(hints), "endless key hints are clickable")
+click(app, hints["scan"].center)
+check(e.state == "scan", "clicking scan now scans")
+for opener, kind, home in ((lambda: app.go_levels(0), menus.LevelSelectScene, menus.MainMenuScene),
+                           (lambda: app.replace(menus.ProfileScene(app)), menus.ProfileScene, menus.MainMenuScene),
+                           (lambda: app.replace(menus.SettingsScene(app)), menus.SettingsScene, menus.MainMenuScene),
+                           (lambda: app.replace(menus.RecordsScene(app)), menus.RecordsScene, menus.MainMenuScene),
+                           (lambda: app.go_academy(), academy.AcademyScene, menus.MainMenuScene),
+                           (lambda: app.go_quiz(), academy.QuizScene, academy.AcademyScene)):
+    opener()
+    run(app, 2)
+    check(isinstance(app.top, kind), kind.__name__ + " opens")
+    app.draw()
+    click(app, (66, 28))
+    run(app, 2)
+    check(isinstance(app.top, home), kind.__name__ + ": the on-screen BACK button works")
+app.replace(academy.LessonScene(app, 4, page=1))
+run(app, 2)
+app.draw()
+page = app.top.page
+updates = page.trainer.index
+click(app, page.zones[0][0].center)
+check(page.trainer.last is not None, "the trainer's step button works by click")
+click(app, (600, 688))
+run(app, 2)
+check(isinstance(app.top, academy.AcademyScene), "the lesson's ACADEMY button works")
+app.replace(academy.LessonScene(app, 3))
+run(app, 2)
+app.draw()
+page = app.top.page
+click(app, page.zones[2][0].center)
+check(page.gate == 2, "gate tabs are clickable")
+summary = {"daily": False, "score": 4321, "wave": 7, "cleared": 6, "correct": 30, "wrong": 3, "best_combo": 12,
+           "proofs": 1, "perfect": 4, "time": 90.0, "completed": False, "date_key": "2026-11-11", "daily_no": 315}
+app.replace(play.ResultsScene(app, summary))
+run(app, 2)
+res = app.top
+check(res.entry is not None, "a first run qualifies for the leaderboard")
+app.draw()
+first = res.entry.chars[0]
+click(app, res.entry.slot_rects[0].center)
+check(res.entry.chars[0] != first, "tapping a letter changes it")
+click(app, res.entry.save_rect.center)
+check(res.entry.done and res.position == 0, "the SAVE button stores the score")
+
+
+class FakeStorage(dict):
+    def getItem(self, key):
+        return self.get(key)
+
+    def setItem(self, key, value):
+        self[key] = value
+
+
+store = FakeStorage()
+web = Profile(None, storage=store)
+web.add_xp(123)
+check("hyperplane_heist_save" in store and Profile(None, storage=FakeStorage(store)).xp == 123,
+      "a browser save (localStorage) round trip")
+
 # ------------------------------------------------------------ every screen
 section("every screen, random input")
 app = make_app(audio=True)

@@ -4,15 +4,18 @@ Settings, campaign stars, endless and daily records, the leaderboard,
 Academy progress, achievements, XP / ranks and laser skins live in one JSON
 file, by default ~/.hyperplane_heist/save.json (override with the
 HYPERPLANE_HEIST_SAVE environment variable).  Writes are atomic; a corrupt
-file is set aside as .bak and the game starts fresh.
+file is set aside as .bak and the game starts fresh.  In a browser the same
+JSON goes into the page's localStorage instead.
 """
 import copy
 import datetime
 import json
 import os
+import sys
 import tempfile
 
 SAVE_ENV = "HYPERPLANE_HEIST_SAVE"
+WEB_KEY = "hyperplane_heist_save"
 VERSION = 1
 CAMPAIGN_SIZE = 12
 LESSON_IDS = ("neuron", "sum", "boundary", "gates", "learning", "convergence", "rate", "beyond")
@@ -94,9 +97,21 @@ def rank_index(xp):
     return index
 
 
+def web_storage():
+    """The browser's localStorage when running under pygbag, else None."""
+    if sys.platform != "emscripten":
+        return None
+    try:
+        import platform as browser          # pygbag swaps `platform` for a bridge to the page
+        return browser.window.localStorage
+    except Exception:
+        return None
+
+
 class Profile:
-    def __init__(self, path="default", autosave=True):
+    def __init__(self, path="default", autosave=True, storage=None):
         self.path = default_path() if path == "default" else path
+        self.storage = storage if storage is not None else web_storage()
         self.autosave = autosave
         self.events = []            # (kind, title, detail) waiting to be shown as toasts
         self.save_error = None
@@ -122,19 +137,28 @@ class Profile:
 
     def _load(self):
         data = self._defaults()
-        if not self.path or not os.path.exists(self.path):
-            return data
-        try:
-            with open(self.path, "r", encoding="utf-8") as handle:
-                stored = json.load(handle)
-            if not isinstance(stored, dict):
-                raise ValueError("save file is not an object")
-        except (OSError, ValueError):
+        if self.storage is not None:
             try:
-                os.replace(self.path, self.path + ".bak")
-            except OSError:
-                pass
+                text = self.storage.getItem(WEB_KEY)
+                stored = json.loads(str(text)) if text else {}
+                if not isinstance(stored, dict):
+                    stored = {}
+            except Exception:
+                stored = {}
+        elif not self.path or not os.path.exists(self.path):
             return data
+        else:
+            try:
+                with open(self.path, "r", encoding="utf-8") as handle:
+                    stored = json.load(handle)
+                if not isinstance(stored, dict):
+                    raise ValueError("save file is not an object")
+            except (OSError, ValueError):
+                try:
+                    os.replace(self.path, self.path + ".bak")
+                except OSError:
+                    pass
+                return data
         for key, value in stored.items():
             if key in data and isinstance(data[key], dict) and isinstance(value, dict):
                 merged = copy.deepcopy(data[key])
@@ -145,6 +169,13 @@ class Profile:
         return data
 
     def save(self):
+        if self.storage is not None:
+            try:
+                self.storage.setItem(WEB_KEY, json.dumps(self.data, sort_keys=True))
+                self.save_error = None
+            except Exception as error:
+                self.save_error = str(error)
+            return
         if not self.path:
             return
         try:

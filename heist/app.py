@@ -1,11 +1,15 @@
-"""Hyperplane Heist: the window, the scene stack, toasts and the main loop."""
-import faulthandler
+"""Hyperplane Heist: the window, the scene stack, toasts and the main loop.
+
+The loop is async so the same code runs on the desktop and in a browser
+(pygbag hands control back to the page at every `await asyncio.sleep(0)`).
+"""
+import asyncio
 import random
 
 import pygame
 
 from .audio import Audio, open_mixer
-from .core import clamp, ease_out
+from .core import WEB, clamp, ease_out
 from .gfx import (AMBER, BLACK, CYAN, GOLD, GREEN, SCREEN_H, SCREEN_W, TEXT_DIM, VIOLET, WHITE, Gfx, draw_star,
                   make_icon, panel, scale_color)
 from .save import Profile
@@ -105,12 +109,13 @@ class App:
 
     def quit(self):
         self.profile.save()
-        self.running = False
+        if not WEB:                         # a web page cannot close itself; just keep the save
+            self.running = False
 
     def toggle_fullscreen(self):
         try:
             pygame.display.toggle_fullscreen()
-        except pygame.error:
+        except Exception:
             return
         self.profile.set_setting("fullscreen", not self.profile.settings.get("fullscreen"))
 
@@ -221,7 +226,7 @@ class App:
                 gfx.text(surf, gfx.tiny, toast["detail"], (rect.left + 56, rect.top + 34), TEXT_DIM)
             y += 66
 
-    def run(self):
+    async def run(self):
         clock = pygame.time.Clock()
         while self.running:
             dt = min(clock.tick(FPS) / 1000.0, 0.05)
@@ -230,10 +235,19 @@ class App:
             self.update(dt)
             self.draw()
             pygame.display.flip()
+            await asyncio.sleep(0)      # lets the browser breathe; costs nothing on the desktop
 
 
 def main():
-    faulthandler.enable()           # a native crash prints the Python stack instead of dying silently
+    asyncio.run(main_async())
+
+
+async def main_async():
+    try:
+        import faulthandler
+        faulthandler.enable()       # a native crash prints the Python stack instead of dying silently
+    except Exception:
+        pass
     open_mixer()                    # first, so pygame.init() never opens the unnamed default device
     pygame.init()
     pygame.display.set_caption("Hyperplane Heist")
@@ -241,17 +255,21 @@ def main():
         pygame.display.set_icon(make_icon())
     except pygame.error:
         pass
-    scaled = getattr(pygame, "SCALED", 0)
+    # SCALED makes the desktop window resizable.  In a browser the page already scales the canvas and
+    # converts clicks to canvas pixels, so SCALED would scale every click a second time (they land
+    # about 17% off); the web build uses a plain window.
+    scaled = 0 if WEB else getattr(pygame, "SCALED", 0)
     try:
         screen = pygame.display.set_mode((SCREEN_W, SCREEN_H), (scaled | pygame.RESIZABLE) if scaled else 0)
     except pygame.error:
         screen = pygame.display.set_mode((SCREEN_W, SCREEN_H))
     app = App(screen)
-    if app.profile.settings.get("fullscreen"):
+    if app.profile.settings.get("fullscreen") and not WEB:
         try:
             pygame.display.toggle_fullscreen()
-        except pygame.error:
+        except Exception:
             app.profile.set_setting("fullscreen", False)
     app.start()
-    app.run()
-    pygame.quit()
+    await app.run()
+    if not WEB:
+        pygame.quit()

@@ -6,7 +6,34 @@ import pygame
 
 from .core import clamp, inv_lerp, lerp
 from .gfx import (AMBER, BLACK, CYAN, GREEN, INK, PANEL_EDGE, PANEL_FILL, RED, SCREEN_H, SCREEN_W, TEXT, TEXT_DIM,
-                  TEXT_FAINT, WHITE, beam, draw_lock, draw_nyx, mix, scale_color)
+                  TEXT_FAINT, WHITE, beam, draw_lock, draw_nyx, mix, panel, scale_color)
+
+
+class Button:
+    """A plain clickable button (for mouse and touch players without a keyboard)."""
+
+    def __init__(self, rect, label, color=CYAN):
+        self.rect = pygame.Rect(rect)
+        self.label = label
+        self.color = color
+        self.hover = False
+
+    def handle_event(self, event):
+        """True when the button was clicked."""
+        if event.type == pygame.MOUSEMOTION:
+            self.hover = self.rect.collidepoint(event.pos)
+        elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and self.rect.collidepoint(event.pos):
+            return True
+        return False
+
+    def draw(self, surf, gfx):
+        panel(surf, self.rect, (24, 32, 56) if self.hover else (14, 18, 34), self.color if self.hover else PANEL_EDGE,
+              8, 2 if self.hover else 1)
+        gfx.text(surf, gfx.label, self.label, self.rect.center, WHITE if self.hover else TEXT, "center")
+
+
+def back_button():
+    return Button((14, 12, 104, 32), "◀  BACK", TEXT_DIM)
 
 CONTROLS_HELP = (
     ("← →", "change w₁: tilts the laser"),

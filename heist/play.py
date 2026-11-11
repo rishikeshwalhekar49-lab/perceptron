@@ -118,12 +118,39 @@ class PlayScene(Scene):
             alpha *= 0.3
         self.gfx.dim(surf, alpha, (255, 40, 64))
 
+    hints = ()              # (rect, action) of the clickable key hints drawn last frame
+    hint_hover = None
+
+    def click_hint(self, event):
+        """The key hints in the panel double as buttons, for mouse-only and touch players."""
+        if event.type == pygame.MOUSEMOTION:
+            self.hint_hover = next((action for rect, action in self.hints if rect.collidepoint(event.pos)), None)
+            return False
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            for rect, action in self.hints:
+                if rect.collidepoint(event.pos):
+                    self.audio.play("ui_select")
+                    self.do_action(action)
+                    return True
+        return False
+
+    def do_action(self, action):
+        pass
+
     def draw_keys(self, surf, y, rows):
+        """Rows of (keys, label, action); hints with an action are outlined and clickable."""
+        hints = []
         for row in rows:
             x = PANEL.left + 22
-            for keys, label in row:
+            for keys, label, action in row:
+                start = x
                 x = self.gfx.key_hint(surf, x, y, keys, label)
+                if action:
+                    rect = pygame.Rect(start - 5, y - 2, x - 16 - start + 10, 24)
+                    hints.append((rect, action))
+                    pygame.draw.rect(surf, CYAN if action == self.hint_hover else PANEL_EDGE, rect, 1, border_radius=6)
             y += 26
+        self.hints = hints
 
 
 # ---------------------------------------------------------------------------
@@ -194,6 +221,8 @@ class CampaignScene(PlayScene):
             if action:
                 self.choose(action)
             return True
+        if self.click_hint(event):
+            return True
         if self.board.handle_event(event):
             return True
         if self.state == "play" and event.type == pygame.KEYDOWN:
@@ -207,6 +236,20 @@ class CampaignScene(PlayScene):
                 self.restart()
                 return True
         return False
+
+    def do_action(self, action):
+        if action == "pause":
+            if self.state not in ("won", "failed", "proving"):
+                self.pause()
+        elif action == "restart":
+            self.restart()
+        elif self.state == "play":
+            if action == "lockin":
+                self.lock_in()
+            elif action == "declare":
+                self.declare()
+            elif action == "flip" and self.board.can_control():
+                self.board.flip()
 
     def choose(self, action):
         if action == "next" and self.index + 1 < len(LEVELS):
@@ -496,8 +539,9 @@ class CampaignScene(PlayScene):
             gfx.text(surf, gfx.small, line, (left, y), color)
             y += 17
         self.draw_keys(surf, PANEL.bottom - 58, (
-            ((["ENTER"], "lock in"), (["X"], "impossible?"), (["F"], "flip"), (["R"], "restart")),
-            ((["Q", "E"], "turn"), (["ESC"], "pause"), ([], "mouse: drag ends / beam")),
+            ((["ENTER"], "lock in", "lockin"), (["X"], "impossible?", "declare"), (["F"], "flip", "flip"),
+             (["R"], "restart", "restart")),
+            ((["Q", "E"], "turn", None), (["ESC"], "pause", "pause"), ([], "or drag the laser", None)),
         ))
 
     COACH_RECT = pygame.Rect(FLOOR.left + 16, FLOOR.top + 150, 330, 104)
@@ -808,6 +852,20 @@ class EndlessScene(PlayScene):
         self.set_state("enter")
         self.audio.play("teleport")
 
+    def do_action(self, action):
+        if action == "pause":
+            if self.state not in ("gameover", "complete"):
+                self.pause()
+        elif self.state == "play":
+            if action == "scan":
+                self.lock_in(early=True)
+            elif action == "declare":
+                self.declare()
+            elif action == "train":
+                self.auto_train()
+            elif action == "flip" and self.board.can_control():
+                self.board.flip()
+
     def lock_in(self, early):
         if self.state != "play":
             return
@@ -986,6 +1044,8 @@ class EndlessScene(PlayScene):
         if self.state in ("gameover", "complete"):
             if (confirm or click) and self.state_t > 1.0:
                 self.to_results()
+            return True
+        if self.click_hint(event):
             return True
         if self.board.handle_event(event):
             return True
@@ -1283,10 +1343,10 @@ class EndlessScene(PlayScene):
                 else:
                     text, color = "{} unit{} on the wrong side".format(errors, "" if errors == 1 else "s"), AMBER
                 gfx.text(surf, gfx.small, text, (left, y), color)
-        keys = [((["ENTER"], "scan now"), (["X"], "no line can"), (["F"], "flip"))]
-        second = [(["Q", "E"], "turn"), (["ESC"], "pause")]
+        keys = [((["ENTER"], "scan now", "scan"), (["X"], "no line can", "declare"), (["F"], "flip", "flip"))]
+        second = [(["Q", "E"], "turn", None), (["ESC"], "pause", "pause")]
         if self.trainer:
-            second.insert(0, (["T"], "auto-train ×{}".format(self.trainer)))
+            second.insert(0, (["T"], "auto-train ×{}".format(self.trainer), "train"))
         keys.append(tuple(second))
         self.draw_keys(surf, PANEL.bottom - 58, keys)
 
@@ -1515,11 +1575,28 @@ class NameEntry:
             return False
         return True
 
+    def handle_click(self, pos, audio):
+        """Tap a letter to cycle it, tap SAVE to finish: works without a keyboard."""
+        for i, rect in enumerate(getattr(self, "slot_rects", ())):
+            if rect.collidepoint(pos):
+                self.slot = i
+                self.chars[i] = self.LETTERS[(self.LETTERS.index(self.chars[i]) + 1) % len(self.LETTERS)]
+                audio.play("tick")
+                return True
+        save = getattr(self, "save_rect", None)
+        if save is not None and save.collidepoint(pos):
+            self.done = True
+            audio.play("ui_select")
+            return True
+        return False
+
     def draw(self, surf, gfx, cx, y, time):
+        self.slot_rects = []
         for i, char in enumerate(self.chars):
             x = cx + (i - 1) * 64
             rect = pygame.Rect(0, 0, 54, 66)
             rect.center = (x, y)
+            self.slot_rects.append(rect)
             focused = i == self.slot
             panel(surf, rect, (14, 18, 34), GOLD if focused else PANEL_EDGE, 8, 2)
             gfx.text(surf, gfx.big, char, rect.center, WHITE if focused else TEXT, "center")
@@ -1527,6 +1604,10 @@ class NameEntry:
                 pulse = 0.5 + 0.5 * math.sin(time * 6)
                 pygame.draw.line(surf, mix(GOLD, WHITE, pulse), (rect.left + 10, rect.bottom - 8),
                                  (rect.right - 10, rect.bottom - 8), 3)
+        self.save_rect = pygame.Rect(0, 0, 150, 40)
+        self.save_rect.center = (cx, y + 74)
+        panel(surf, self.save_rect, (16, 40, 30), GREEN, 8, 2)
+        gfx.text(surf, gfx.mid, "SAVE", self.save_rect.center, WHITE, "center")
 
 
 class ResultsScene(Scene):
@@ -1562,7 +1643,10 @@ class ResultsScene(Scene):
 
     def handle_event(self, event):
         if self.entry is not None and not self.entry.done:
-            if self.entry.handle_event(event, self.audio) and self.entry.done:
+            if not self.entry.handle_event(event, self.audio) and event.type == pygame.MOUSEBUTTONDOWN \
+                    and event.button == 1:
+                self.entry.handle_click(event.pos, self.audio)
+            if self.entry.done:
                 self.position = self.profile.add_score(self.entry.name, self.summary["score"], self.summary["wave"])
             return True
         if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
@@ -1634,9 +1718,10 @@ class ResultsScene(Scene):
             gfx.text(surf, gfx.title, "TOP 10!", (right.centerx, right.top + 40), GOLD, "midtop")
             gfx.text(surf, gfx.body, "Enter your initials", (right.centerx, right.top + 96), TEXT, "midtop")
             self.entry.draw(surf, gfx, right.centerx, right.top + 190, self.time)
-            gfx.text(surf, gfx.small, "type letters, or ↑ ↓ to change and ← → to move", (right.centerx, right.top + 262),
+            gfx.text(surf, gfx.small, "type letters, or tap a letter to change it", (right.centerx, right.top + 304),
                      TEXT_DIM, "midtop")
-            gfx.text(surf, gfx.small, "ENTER to save", (right.centerx, right.top + 286), TEXT_DIM, "midtop")
+            gfx.text(surf, gfx.small, "ENTER or SAVE to keep your score", (right.centerx, right.top + 328), TEXT_DIM,
+                     "midtop")
         elif self.daily:
             self.draw_daily_list(surf, right)
         else:

@@ -16,7 +16,7 @@ from .gfx import (AMBER, BLACK, C_B, C_ETA, C_W, C_X, C_Y, C_Z, CYAN, GOLD, GREE
                   thick_line)
 from .save import LESSON_IDS
 from .scene import Scene
-from .ui import Slider, SliderGroup
+from .ui import Button, Slider, SliderGroup, back_button
 
 TEXT_X, TEXT_W = 56, 540
 VIEW_RECT = pygame.Rect(660, 128, 440, 440)
@@ -133,9 +133,28 @@ class Page:
         self.audio = lesson.audio
         self.time = 0.0
         self.sliders = None
+        self.zones = []             # (rect, callback): clickable spots registered while drawing
+
+    def zone(self, rect, callback):
+        self.zones.append((pygame.Rect(rect), callback))
 
     def handle_event(self, event):
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            for rect, callback in self.zones:
+                if rect.collidepoint(event.pos):
+                    callback()
+                    return True
         return self.sliders.handle_event(event) if self.sliders else False
+
+    def key_buttons(self, surf, x, y, items):
+        """Key hints that are also buttons: items = [(key, label, callback)]."""
+        for key, label, callback in items:
+            start = x
+            x = self.gfx.key_hint(surf, x, y, [key], label)
+            rect = pygame.Rect(start - 5, y - 2, x - 16 - start + 10, 24)
+            pygame.draw.rect(surf, PANEL_EDGE, rect, 1, border_radius=6)
+            self.zone(rect, callback)
+        return x
 
     def update(self, dt):
         self.time += dt
@@ -552,25 +571,27 @@ class ScalePage(Page):
         self.vp = Viewport(VIEW_RECT)
         self.params_now = [0.3, 0.4, -3.5]
         self.flash = 0.0
-        self.note = "Press 1, 2, 3 or 4."
+        self.note = "Click a row, or press 1, 2, 3 or 4."
+
+    def apply(self, index):
+        factors = ((2.0, "×2: every number doubled. Same line, same sides."),
+                   (0.5, "×½: every number halved. Still the same line."),
+                   (-1.0, "×(-1): same line, but SAFE and ALARM swapped sides!"))
+        if index == 3:
+            self.params_now = [0.3, 0.4, -3.5]
+            self.note = "Back to the start."
+            self.audio.play("ui_back")
+            return
+        k, self.note = factors[index]
+        self.params_now = [v * k for v in self.params_now]
+        self.flash = 0.6
+        self.audio.play("flip" if k < 0 else "tick")
 
     def handle_event(self, event):
-        if event.type == pygame.KEYDOWN:
-            factors = {pygame.K_1: (2.0, "×2: every number doubled. Same line, same sides."),
-                       pygame.K_2: (0.5, "×½: every number halved. Still the same line."),
-                       pygame.K_3: (-1.0, "×(-1): same line, but SAFE and ALARM swapped sides!")}
-            if event.key in factors:
-                k, self.note = factors[event.key]
-                self.params_now = [v * k for v in self.params_now]
-                self.flash = 0.6
-                self.audio.play("flip" if k < 0 else "tick")
-                return True
-            if event.key == pygame.K_4:
-                self.params_now = [0.3, 0.4, -3.5]
-                self.note = "Back to the start."
-                self.audio.play("ui_back")
-                return True
-        return False
+        if event.type == pygame.KEYDOWN and event.key in (pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_4):
+            self.apply(event.key - pygame.K_1)
+            return True
+        return super().handle_event(event)
 
     def update(self, dt):
         super().update(dt)
@@ -589,10 +610,13 @@ class ScalePage(Page):
                             "ALARM swap. That is the F (flip) key in the game.", y)
         y = self.formula(surf, [("w₁ = ", C_W), (f2(w1), WHITE), ("   w₂ = ", C_W), (f2(w2), WHITE), ("   b = ", C_B),
                                 (f2(b), WHITE)], y + 6, gfx.mid)
-        for key, text in (("1", "multiply everything by 2"), ("2", "multiply everything by ½"),
-                          ("3", "multiply everything by -1"), ("4", "reset")):
+        for index, (key, text) in enumerate((("1", "multiply everything by 2"), ("2", "multiply everything by ½"),
+                                             ("3", "multiply everything by -1"), ("4", "reset"))):
             x = gfx.keycap(surf, TEXT_X, y, key)
-            gfx.text(surf, gfx.body, text, (x + 6, y + 1), TEXT)
+            right = gfx.text(surf, gfx.body, text, (x + 6, y + 1), TEXT).right
+            rect = pygame.Rect(TEXT_X - 6, y - 3, right - TEXT_X + 14, 26)
+            pygame.draw.rect(surf, PANEL_EDGE, rect, 1, border_radius=6)
+            self.zone(rect, lambda index=index: self.apply(index))
             y += 30
         self.para(surf, self.note, y + 10, GOLD)
 
@@ -612,10 +636,13 @@ class GatesPage(Page):
                    Slider("b", "b", -3, 3, 0.0, 0.05, C_B)]
         self.sliders = SliderGroup(sliders, TEXT_X, 448, TEXT_W - 20, 50, None, self.app)
 
+    def select(self, index):
+        self.gate = index
+        self.audio.play("ui_move")
+
     def handle_event(self, event):
         if event.type == pygame.KEYDOWN and event.key in (pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_4):
-            self.gate = event.key - pygame.K_1
-            self.audio.play("ui_move")
+            self.select(event.key - pygame.K_1)
             return True
         return super().handle_event(event)
 
@@ -650,6 +677,7 @@ class GatesPage(Page):
                      "center")
             if gate in self.solved:
                 draw_star(surf, rect.right - 12, rect.top + 10, 6, GOLD)
+            self.zone(rect, lambda i=i: self.select(i))
             x += 122
         y = self.para(surf, "A perceptron can be a logic gate. The four corners are the inputs 0 and 1; a bot means "
                             "the gate should output 1. Find w₁, w₂ and b that put every bot on the SAFE side.", 160)
@@ -674,7 +702,7 @@ class GatesPage(Page):
         elif all_ok:
             self.para(surf, "{} built:  w₁ = {}, w₂ = {}, b = {}".format(name, f2(w1), f2(w2), f2(b)), y + 4, GREEN)
         self.sliders.draw(surf, gfx, self.time)
-        gfx.text(surf, gfx.small, "1-4 pick a gate", (TEXT_X, 610), TEXT_FAINT)
+        gfx.text(surf, gfx.small, "click a gate above, or press 1-4", (TEXT_X, 610), TEXT_FAINT)
 
 
 class RulePage(Page):
@@ -736,24 +764,35 @@ class TrainerPage(Page):
     def set_rate(self, name, value):
         self.trainer.lr = value
 
+    def toggle_play(self):
+        self.playing = not self.playing
+        self.audio.play("ui_select")
+
+    def reset(self):
+        self.trainer.reset()
+        if self.sliders is not None:
+            self.trainer.lr = self.sliders.values()["lr"]
+        self.shown = self.trainer.brain.params
+        self.playing = False
+        self.audio.play("ui_back")
+
     def handle_event(self, event):
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_SPACE:
                 self.step()
                 return True
             if event.key == pygame.K_p:
-                self.playing = not self.playing
-                self.audio.play("ui_select")
+                self.toggle_play()
                 return True
             if event.key == pygame.K_r:
-                self.trainer.reset()
-                if self.sliders is not None:
-                    self.trainer.lr = self.sliders.values()["lr"]
-                self.shown = self.trainer.brain.params
-                self.playing = False
-                self.audio.play("ui_back")
+                self.reset()
                 return True
         return super().handle_event(event)
+
+    def draw_controls(self, surf, y, play_label="play"):
+        self.key_buttons(surf, TEXT_X, y, (("SPACE", "step", self.step),
+                                           ("P", "pause" if self.playing else play_label, self.toggle_play),
+                                           ("R", "reset", self.reset)))
 
     def step(self):
         info = self.trainer.step()
@@ -789,7 +828,7 @@ class TrainerPage(Page):
         y += 26
         info = tr.last
         if info is None:
-            gfx.text(surf, gfx.body, "Press SPACE for one step, P to play.", (TEXT_X, y), TEXT)
+            gfx.text(surf, gfx.body, "SPACE (or the step button) runs one step; P plays.", (TEXT_X, y), TEXT)
             return
         x1, x2 = info["point"]
         old, new = info["old"], info["new"]
@@ -831,9 +870,7 @@ class TrainerPage(Page):
                             "single mistake.", 112)
         self.draw_status(surf, y)
         self.sliders.draw(surf, gfx, self.time)
-        x = TEXT_X
-        for key, label in (("SPACE", "step"), ("P", "play / pause" if not self.playing else "pause"), ("R", "reset")):
-            x = gfx.key_hint(surf, x, 540, [key], label)
+        self.draw_controls(surf, 540)
         gfx.text(surf, gfx.small, "faded lines: where the laser used to be", (TEXT_X, 574), TEXT_FAINT)
 
 
@@ -922,7 +959,8 @@ class TheoremPage(TrainerPage):
             self.radius, self.gamma, int(self.bound)), WHITE)], y, gfx.body)
         color = GREEN if tr.converged else CYAN
         self.formula(surf, [("mistakes so far: ", TEXT), (str(tr.updates), color),
-                            ("   CONVERGED" if tr.converged else "   (SPACE step, P play)", color)], y - 4, gfx.body)
+                            ("   CONVERGED" if tr.converged else "", color)], y - 4, gfx.body)
+        self.draw_controls(surf, 506)
         self.para(surf, "A guarantee, not a prediction: the real count is usually far below the bound. A wider gap "
                         "between the classes (bigger γ) means a smaller bound.", 548, TEXT_DIM, gfx.small)
 
@@ -974,17 +1012,14 @@ class NoisyPage(TrainerPage):
         if self.best is not None:
             gfx.text(surf, gfx.small, "pocket: {} error{}".format(self.best[0], "" if self.best[0] == 1 else "s"),
                      (TEXT_X + 260, y + 5), GOLD)
-        x = TEXT_X
-        for key, label in (("SPACE", "step"), ("P", "play fast"), ("R", "reset")):
-            x = gfx.key_hint(surf, x, y + 36, [key], label)
+        self.draw_controls(surf, y + 36, "play fast")
         self.para(surf, "Other fixes: models that measure how wrong they are, like logistic regression, or more "
                         "layers (lesson 8).", 548, TEXT_DIM, gfx.small)
 
-    def handle_event(self, event):
-        if event.type == pygame.KEYDOWN and event.key == pygame.K_r:
-            self.epoch_log = []
-            self.best = None
-        return super().handle_event(event)
+    def reset(self):
+        self.epoch_log = []
+        self.best = None
+        super().reset()
 
 
 class RatePage(Page):
@@ -1003,12 +1038,15 @@ class RatePage(Page):
                 table.append((lr, tr.updates, tr.brain.params))
         self.show = 1
 
+    def select(self, index):
+        self.show = index
+        self.audio.play("ui_move")
+
     def handle_event(self, event):
         if event.type == pygame.KEYDOWN and event.key in (pygame.K_1, pygame.K_2, pygame.K_3):
-            self.show = event.key - pygame.K_1
-            self.audio.play("ui_move")
+            self.select(event.key - pygame.K_1)
             return True
-        return False
+        return super().handle_event(event)
 
     def draw(self, surf):
         gfx = self.gfx
@@ -1031,10 +1069,15 @@ class RatePage(Page):
                                                                                     zero[2][0]),
                      (TEXT_X, y), color)
             gfx.text(surf, gfx.body, "{:>3} mistakes".format(rnd[1]), (TEXT_X + 380, y), color)
+            rect = pygame.Rect(TEXT_X - 8, y - 3, 530, 24)
+            if i == self.show:
+                pygame.draw.rect(surf, PANEL_EDGE, rect, 1, border_radius=6)
+            self.zone(rect, lambda i=i: self.select(i))
             y += 24
         y = self.para(surf, "With a random start, η matters: a small η keeps the start's influence for longer, a "
                         "big η drowns it out quickly.", y + 8, TEXT_DIM)
-        gfx.text(surf, gfx.small, "1-3 show the line learned with each η (start at 0)", (TEXT_X, y + 4), TEXT_FAINT)
+        gfx.text(surf, gfx.small, "click a row (or press 1-3) to see the line learned from zero", (TEXT_X, y + 4),
+                 TEXT_FAINT)
 
 
 class FeatureScalePage(Page):
@@ -1311,6 +1354,7 @@ class LessonScene(Scene):
         self.page_index = page
         self.page = self.page_types[page](self)
         self.slide = 0.0
+        self.hub = Button((525, 670, 150, 36), "ACADEMY", VIOLET)
 
     def go(self, step):
         target = self.page_index + step
@@ -1341,6 +1385,9 @@ class LessonScene(Scene):
             if event.key == pygame.K_BACKSPACE:
                 self.go(-1)
                 return True
+        if self.hub.handle_event(event):
+            self.app.go_academy(self.index)
+            return True
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             back, forward = self.nav_rects()
             if back.collidepoint(event.pos):
@@ -1368,6 +1415,7 @@ class LessonScene(Scene):
         gfx.text(surf, gfx.tiny, "page {} of {}".format(self.page_index + 1, len(self.page_types)), (1150, 56),
                  TEXT_FAINT, "topright")
         pygame.draw.line(surf, PANEL_EDGE, (56, 92), (1144, 92))
+        self.page.zones = []
         if abs(self.slide) > 0.01:
             layer = pygame.Surface((1200, 720), pygame.SRCALPHA, 32)
             layer.blit(gfx.backdrop, (0, 0))
@@ -1382,7 +1430,8 @@ class LessonScene(Scene):
             panel(surf, rect, (16, 22, 40), (GREEN if last and rect is forward else CYAN) if enabled else PANEL_EDGE,
                   8)
             gfx.text(surf, gfx.label, text, rect.center, WHITE if enabled else TEXT_FAINT, "center")
-        gfx.text(surf, gfx.small, "ENTER next   BACKSPACE back   ESC Academy", (600, 688), TEXT_FAINT, "center")
+        self.hub.draw(surf, gfx)
+        gfx.text(surf, gfx.tiny, "keys: ENTER next   BACKSPACE back   ESC Academy", (600, 656), TEXT_FAINT, "center")
 
 
 class AcademyScene(Scene):
@@ -1395,6 +1444,7 @@ class AcademyScene(Scene):
         for i in range(len(LESSONS) + 1):
             col, row = i % 3, i // 3
             self.cards.append(pygame.Rect(60 + col * 366, 150 + row * 150, 346, 132))
+        self.back = back_button()
 
     def open(self, i):
         self.audio.play("ui_select")
@@ -1404,9 +1454,12 @@ class AcademyScene(Scene):
             self.app.replace(LessonScene(self.app, i))
 
     def handle_event(self, event):
+        if self.back.handle_event(event):
+            self.app.go_menu("academy")
+            return True
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
-                self.app.go_menu()
+                self.app.go_menu("academy")
                 return True
             moves = {pygame.K_LEFT: -1, pygame.K_RIGHT: 1, pygame.K_UP: -3, pygame.K_DOWN: 3}
             if event.key in moves:
@@ -1465,6 +1518,7 @@ class AcademyScene(Scene):
         gfx.text(surf, gfx.small, "Each lesson is hands-on: drag sliders, step the learning rule, break XOR. "
                                   "Finished lessons earn XP and a violet laser.", (134, 632), TEXT_DIM)
         gfx.text(surf, gfx.tiny, "arrows choose  ·  ENTER open  ·  ESC menu", (134, 654), TEXT_FAINT)
+        self.back.draw(surf, gfx)
 
 
 # ---------------------------------------------------------------------------
@@ -1633,6 +1687,9 @@ class QuizScene(Scene):
         self.correct = 0
         self.finished = False
         self.result_new = False
+        self.back = back_button()
+        self.again = Button((380, 540, 200, 44), "NEW QUIZ", GREEN)
+        self.to_hub = Button((620, 540, 200, 44), "ACADEMY", VIOLET)
 
     def option_rects(self):
         return [pygame.Rect(150, 300 + i * 70, 900, 56) for i in range(4)]
@@ -1659,13 +1716,13 @@ class QuizScene(Scene):
             self.audio.play("win" if self.correct >= 8 else "wave_clear")
 
     def handle_event(self, event):
-        if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+        if self.back.handle_event(event) or (event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE):
             self.app.go_academy(len(LESSONS))
             return True
         if self.finished:
-            if event.type == pygame.KEYDOWN and event.key in CONFIRM:
+            if self.again.handle_event(event) or (event.type == pygame.KEYDOWN and event.key in CONFIRM):
                 self.app.go_quiz()
-            elif event.type == pygame.KEYDOWN and event.key == pygame.K_BACKSPACE:
+            elif self.to_hub.handle_event(event) or (event.type == pygame.KEYDOWN and event.key == pygame.K_BACKSPACE):
                 self.app.go_academy(len(LESSONS))
             return True
         if event.type == pygame.KEYDOWN:
@@ -1712,7 +1769,10 @@ class QuizScene(Scene):
             for k in range(3):
                 earned = self.correct >= (5, 8, 10)[k]
                 draw_star(surf, 600 + (k - 1) * 70, 460, 26, GOLD if earned else (60, 66, 84), earned, 3)
-            gfx.text(surf, gfx.body, "ENTER new quiz   ·   BACKSPACE Academy", (600, 560), TEXT_DIM, "center")
+            self.again.draw(surf, gfx)
+            self.to_hub.draw(surf, gfx)
+            gfx.text(surf, gfx.small, "keys: ENTER new quiz   BACKSPACE Academy", (600, 606), TEXT_FAINT, "center")
+            self.back.draw(surf, gfx)
             return
         prompt, options, answer, why = self.questions[self.index]
         gfx.text(surf, gfx.label, "QUESTION {} OF {}".format(self.index + 1, len(self.questions)), (150, 70), VIOLET)
@@ -1738,6 +1798,7 @@ class QuizScene(Scene):
             ok = self.answered == answer
             gfx.text(surf, gfx.mid, "CORRECT!" if ok else "NOT QUITE", (150, 588), GREEN if ok else RED)
             gfx.paragraph(surf, gfx.body, why, 330, 590, 720, TEXT)
-            gfx.text(surf, gfx.small, "ENTER next", (1050, 680), TEXT_DIM, "topright")
+            gfx.text(surf, gfx.small, "ENTER or click to continue", (1050, 680), TEXT_DIM, "topright")
         else:
-            gfx.text(surf, gfx.small, "1-4 or arrows + ENTER", (1050, 680), TEXT_FAINT, "topright")
+            gfx.text(surf, gfx.small, "click an answer, or 1-4", (1050, 680), TEXT_FAINT, "topright")
+        self.back.draw(surf, gfx)

@@ -60,7 +60,11 @@ BEAM_LAYERS = ((44, 0.03), (36, 0.045), (29, 0.065), (23, 0.095), (18, 0.14),
                (14, 0.2), (10, 0.3), (7, 0.45), (5, 0.7))
 THIN_BEAM = ((22, 0.05), (16, 0.09), (11, 0.16), (7, 0.3), (4, 0.6))
 
+FONT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
+BUNDLED_FONT = os.path.join(FONT_DIR, "DejaVuSansMono.ttf")          # ships with the game (see LICENSE_DEJAVU)
+BUNDLED_BOLD = os.path.join(FONT_DIR, "DejaVuSansMono-Bold.ttf")
 FONT_FILES = (
+    BUNDLED_FONT,
     "/System/Library/Fonts/Menlo.ttc",
     "/System/Library/Fonts/SFNSMono.ttf",
     "C:/Windows/Fonts/consola.ttf",
@@ -292,6 +296,11 @@ def find_font_file():
 
 
 def load_font(path, size, bold=False):
+    if bold and path == BUNDLED_FONT and os.path.exists(BUNDLED_BOLD):
+        try:
+            return pygame.font.Font(BUNDLED_BOLD, size)         # the real bold face, not a smeared regular
+        except Exception:
+            pass
     try:
         font = pygame.font.Font(path, size) if path else pygame.font.Font(None, int(size * 1.3))
     except Exception:

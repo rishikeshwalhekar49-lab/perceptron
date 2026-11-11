@@ -3,14 +3,14 @@ import math
 
 import pygame
 
-from .core import clamp, score_text
+from .core import WEB, clamp, score_text
 from .gfx import (AMBER, CYAN, GOLD, GREEN, INK, PANEL_EDGE, PINK, RED, SKIN_COLORS, TEXT, TEXT_DIM, TEXT_FAINT,
                   VIOLET, WHITE, beam, draw_lock, draw_nyx, draw_shield, draw_star, mix, panel, scale_color,
                   skin_color)
 from .levels import LEVELS
 from .save import (ACHIEVEMENTS, LESSON_IDS, RANKS, SKIN_ORDER, SKIN_RULES, daily_key, daily_number)
 from .scene import Scene
-from .ui import Attract, Menu, MenuItem
+from .ui import Attract, Menu, MenuItem, back_button
 
 CONFIRM = (pygame.K_RETURN, pygame.K_KP_ENTER)
 
@@ -60,8 +60,9 @@ class MainMenuScene(Scene):
             MenuItem("HALL OF FAME", "records", "leaderboard and daily records", color=AMBER),
             MenuItem("PROFILE", "profile", "rank, achievements, laser skins", color=GREEN),
             MenuItem("SETTINGS", "settings", "sound, effects, display", color=TEXT_DIM),
-            MenuItem("QUIT", "quit", color=RED),
         ]
+        if not WEB:                                 # a web page cannot close itself
+            items.append(MenuItem("QUIT", "quit", color=RED))
         self.menu = Menu(app, items, 70, 186, 420, 52, 7)
         actions = [item.action for item in items]
         if focus in actions:
@@ -70,7 +71,8 @@ class MainMenuScene(Scene):
 
     def handle_event(self, event):
         if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-            self.app.quit()
+            if not WEB:
+                self.app.quit()
             return True
         action = self.menu.handle_event(event)
         if action == "campaign":
@@ -150,7 +152,8 @@ class MainMenuScene(Scene):
         gfx.text(surf, gfx.body, status, (strip.left + 24, strip.top + 44), TEXT)
         gfx.text(surf, gfx.small, "Vault #{}  ·  {}".format(daily_number(), daily_key()), (strip.left + 24,
                                                                                           strip.top + 72), TEXT_DIM)
-        gfx.text(surf, gfx.tiny, "↑ ↓ choose   ENTER select   M sound   ESC quit", (600, 694), TEXT_FAINT, "center")
+        gfx.text(surf, gfx.tiny, "↑ ↓ choose   ENTER select   M sound" + ("" if WEB else "   ESC quit"), (600, 694),
+                 TEXT_FAINT, "center")
 
 
 class LevelSelectScene(Scene):
@@ -161,6 +164,7 @@ class LevelSelectScene(Scene):
         self.focus = clamp(focus, 0, len(LEVELS) - 1)
         self.keys = [level.key for level in LEVELS]
         self.cards = [pygame.Rect(70 + (i % 4) * 268, 128 + (i // 4) * 150, 250, 134) for i in range(len(LEVELS))]
+        self.back = back_button()
 
     def unlocked(self, i):
         return self.profile.level_unlocked(i, self.keys)
@@ -173,6 +177,9 @@ class LevelSelectScene(Scene):
             self.audio.play("ui_back")
 
     def handle_event(self, event):
+        if self.back.handle_event(event):
+            self.app.go_menu("campaign")
+            return True
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
                 self.app.go_menu("campaign")
@@ -251,6 +258,7 @@ class LevelSelectScene(Scene):
         else:
             gfx.text(surf, gfx.mid, "Locked", (info.left + 24, info.top + 30), TEXT_FAINT)
         gfx.text(surf, gfx.tiny, "arrows choose   ENTER play   ESC back", (600, 698), TEXT_FAINT, "center")
+        self.back.draw(surf, gfx)
 
 
 class ProfileScene(Scene):
@@ -263,6 +271,7 @@ class ProfileScene(Scene):
         self.skin_focus = SKIN_ORDER.index(self.profile.skin)
         self.tiles = [pygame.Rect(60 + (i % 3) * 236, 196 + (i // 3) * 50, 226, 42) for i in range(len(ACHIEVEMENTS))]
         self.skin_rows = [pygame.Rect(800, 196 + i * 58, 340, 50) for i in range(len(SKIN_ORDER))]
+        self.back = back_button()
 
     def equip(self, i):
         name = SKIN_ORDER[i]
@@ -273,6 +282,9 @@ class ProfileScene(Scene):
             self.audio.play("ui_back")
 
     def handle_event(self, event):
+        if self.back.handle_event(event):
+            self.app.go_menu("profile")
+            return True
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
                 self.app.go_menu("profile")
@@ -360,16 +372,21 @@ class ProfileScene(Scene):
                 draw_lock(surf, rect.left + 58, rect.centery - 6, 14, TEXT_FAINT)
             gfx.text(surf, gfx.body, SKIN_COLORS[skin][0], (rect.left + 120, rect.top + 7), WHITE if unlocked
                      else TEXT_FAINT)
-            gfx.text(surf, gfx.tiny, "EQUIPPED" if equipped else (SKIN_RULES[skin] if not unlocked else "ENTER to equip"),
+            gfx.text(surf, gfx.tiny, "EQUIPPED" if equipped else (SKIN_RULES[skin] if not unlocked else "click to equip"),
                      (rect.left + 120, rect.top + 29), GREEN if equipped else TEXT_DIM)
         gfx.text(surf, gfx.tiny, "arrows choose   TAB achievements / skins   ESC back", (600, 698), TEXT_FAINT, "center")
+        self.back.draw(surf, gfx)
 
 
 class RecordsScene(Scene):
     music = "menu"
 
+    def __init__(self, app):
+        super().__init__(app)
+        self.back = back_button()
+
     def handle_event(self, event):
-        if event.type == pygame.KEYDOWN and event.key in (pygame.K_ESCAPE,) + CONFIRM:
+        if self.back.handle_event(event) or (event.type == pygame.KEYDOWN and event.key in (pygame.K_ESCAPE,) + CONFIRM):
             self.app.go_menu("records")
         return True
 
@@ -407,6 +424,7 @@ class RecordsScene(Scene):
             gfx.text(surf, gfx.mid, score_text(record.get("score", 0)), (right.right - 28, y),
                      GOLD if today else TEXT, "topright")
         gfx.text(surf, gfx.tiny, "ESC back", (600, 694), TEXT_FAINT, "center")
+        self.back.draw(surf, gfx)
 
 
 class SettingsScene(Scene):
@@ -416,11 +434,13 @@ class SettingsScene(Scene):
 
     def __init__(self, app):
         super().__init__(app)
+        self.rows = [row for row in self.ROWS if not (WEB and row[0] == "fullscreen")]   # the browser owns fullscreen
         self.focus = 0
         self.confirm = 0
+        self.back = back_button()
 
     def change(self, step):
-        key = self.ROWS[self.focus][0]
+        key = self.rows[self.focus][0]
         settings = self.profile.settings
         if key in ("music", "sfx"):
             value = round(clamp(settings.get(key, 0.5) + 0.1 * step, 0.0, 1.0), 1)
@@ -440,21 +460,24 @@ class SettingsScene(Scene):
             self.audio.play("ui_select")
 
     def handle_event(self, event):
+        if self.back.handle_event(event):
+            self.app.go_menu("settings")
+            return True
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
                 self.app.go_menu("settings")
             elif event.key in (pygame.K_UP, pygame.K_DOWN):
-                self.focus = (self.focus + (1 if event.key == pygame.K_DOWN else -1)) % len(self.ROWS)
+                self.focus = (self.focus + (1 if event.key == pygame.K_DOWN else -1)) % len(self.rows)
                 self.confirm = 0
                 self.audio.play("ui_move")
             elif event.key in (pygame.K_LEFT, pygame.K_RIGHT):
-                if self.ROWS[self.focus][0] != "reset":
+                if self.rows[self.focus][0] != "reset":
                     self.change(1 if event.key == pygame.K_RIGHT else -1)
             elif event.key in CONFIRM + (pygame.K_SPACE,):
                 self.change(1)
             return True
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-            for i in range(len(self.ROWS)):
+            for i in range(len(self.rows)):
                 if pygame.Rect(260, 160 + i * 64, 680, 52).collidepoint(event.pos):
                     self.focus = i
                     self.change(1)
@@ -469,14 +492,14 @@ class SettingsScene(Scene):
         if key == "flashes":
             return "FULL" if s.get("flashes", True) else "REDUCED"
         if key == "reset":
-            return ("press ENTER again to erase everything" if self.confirm == 1 else "ENTER")
+            return ("press again to erase everything" if self.confirm == 1 else "press to start")
         return "ON" if s.get(key) else "OFF"
 
     def draw(self, surf):
         gfx = self.gfx
         surf.blit(gfx.backdrop, (0, 0))
         gfx.draw_banner(surf, "SETTINGS", (600, 70), WHITE, CYAN, gfx.big)
-        for i, (key, label) in enumerate(self.ROWS):
+        for i, (key, label) in enumerate(self.rows):
             rect = pygame.Rect(260, 160 + i * 64, 680, 52)
             focused = i == self.focus
             danger = key == "reset"
@@ -491,8 +514,9 @@ class SettingsScene(Scene):
             color = AMBER if (danger and self.confirm) else TEXT
             gfx.text(surf, gfx.body, self.value_text(key), (rect.right - 24, rect.centery), color, "midright")
         note = self.profile.save_error
-        path = self.profile.path or "(not saving)"
-        gfx.text(surf, gfx.tiny, "Progress is saved to " + path, (600, 640), TEXT_FAINT, "center")
+        where = "in this browser" if WEB else "to " + (self.profile.path or "(not saving)")
+        gfx.text(surf, gfx.tiny, "Progress is saved " + where, (600, 640), TEXT_FAINT, "center")
         if note:
             gfx.text(surf, gfx.tiny, "Could not save: " + note, (600, 658), RED, "center")
         gfx.text(surf, gfx.tiny, "↑ ↓ choose   ← → change   ESC back", (600, 694), TEXT_FAINT, "center")
+        self.back.draw(surf, gfx)

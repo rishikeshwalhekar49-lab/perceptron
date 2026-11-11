@@ -7,7 +7,9 @@ tested on its own.
 """
 import math
 import random
+import sys
 
+WEB = sys.platform == "emscripten"          # running in a browser (pygbag / WebAssembly)
 WORLD_LO, WORLD_HI = 0.0, 10.0
 WORLD_CENTRE = (5.0, 5.0)
 FLOOR_BOUNDS = (WORLD_LO, WORLD_HI, WORLD_LO, WORLD_HI)     # (x1 min, x1 max, x2 min, x2 max)
