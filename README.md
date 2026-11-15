@@ -8,6 +8,8 @@ w₁·x₁ + w₂·x₂ + b = 0
 
 Put every Authorized Bot on the laser's SAFE side and every Intruder Drone on its ALARM side, then lock it in. Get it wrong and the perceptron fights back with one step of its learning rule, and the laser snaps somewhere new.
 
+> **Sequel:** [Hyperplane Heist 2: The Hidden Layer](https://github.com/rishikeshwalhekar49-lab/Hyperplane_heist_2) starts where this game's XOR vault leaves off. It teaches autograd, micrograd and MLPs on one path, and its last vaults train on an engine you write yourself. [▶ Play it in your browser](https://rishikeshwalhekar49-lab.github.io/Hyperplane_heist_2/).
+
 ![A 35-second tour of the game](hyperplane_heist_demo.gif)
 
 ## Play in your browser
